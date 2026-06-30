@@ -104,6 +104,8 @@ Then click Connect.
 - View files in browser  
 - Delete files  
 - Works on local network without internet
+- A simple and lightweight interface to suit low-end phones
+- Easy to define and use
 
 ---
 
