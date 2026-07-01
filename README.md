@@ -46,7 +46,7 @@ git clone https://github.com/yonukwasim520-cyber/MediaCloud-local.git
 
 cd /storage/emulated/0/MediaCloud/
 
-chmod +x server.py
+(Optional) chmod +x server.py
 
 python server.py
 
