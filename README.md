@@ -24,6 +24,8 @@ pkg install python
 
 pip install flask requests
 
+pkg install git
+
 git clone https://github.com/yonukwasim520-cyber/MediaCloud-local.git
 
 ---
@@ -43,6 +45,8 @@ git clone https://github.com/yonukwasim520-cyber/MediaCloud-local.git
 # ▶️ Run Server
 
 cd /storage/emulated/0/MediaCloud/
+
+chmod +x server.py
 
 python server.py
 
