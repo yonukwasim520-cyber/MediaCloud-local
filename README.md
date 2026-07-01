@@ -58,6 +58,8 @@ Now the server is running.
 
 Open Termux and run:
 
+pkg install git
+
 git clone https://github.com/yonukwasim520-cyber/MediaCloud-local.git
 
 ---
