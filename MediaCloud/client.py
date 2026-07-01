@@ -1,80 +1,78 @@
+import tkinter as tk
+from tkinter import filedialog
 import requests
 import os
 import json
 import threading
+import webbrowser
+import uuid
 
-from kivy.app import App
-from kivy.uix.screenmanager import ScreenManager, Screen
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.filechooser import FileChooserListView
-from kivy.uix.textinput import TextInput
-from kivy.uix.popup import Popup
+CONFIG_FILE = "config.json"
+DEVICE_FILE = "device.json"
+
+SAVE_DIR = "/storage/emulated/0/MediaCloud/Files"
+os.makedirs(SAVE_DIR, exist_ok=True)
 
 
-CONFIG = "config.json"
+# ================= DEVICE ID =================
+def load_device_id():
+    if os.path.exists(DEVICE_FILE):
+        return json.load(open(DEVICE_FILE))["id"]
+
+    device_id = str(uuid.uuid4())
+    json.dump({"id": device_id}, open(DEVICE_FILE, "w"))
+    return device_id
 
 
-# ---------------- IP ----------------
+# ================= CONFIG =================
+def save_ip(ip):
+    json.dump({"ip": ip}, open(CONFIG_FILE, "w"))
+
 def load_ip():
-    if os.path.exists(CONFIG):
-        return json.load(open(CONFIG)).get("ip", "")
+    if os.path.exists(CONFIG_FILE):
+        return json.load(open(CONFIG_FILE)).get("ip", "")
     return ""
 
-def save_ip(ip):
-    json.dump({"ip": ip}, open(CONFIG, "w"))
 
+# ================= APP =================
+class ClientApp:
 
-# ---------------- TYPE ----------------
-def get_type(name):
-    n = name.lower()
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Media Cloud Client")
+        self.root.geometry("520x650")
 
-    if n.endswith((".mp4", ".mkv", ".avi")):
-        return "VIDEO"
-    elif n.endswith((".png", ".jpg", ".jpeg", ".webp")):
-        return "IMAGE"
-    elif n.endswith(".gif"):
-        return "GIF"
-    elif n.endswith((".txt", ".py", ".js", ".json")):
-        return "CODE"
-    elif n.endswith(".apk"):
-        return "APK"
-    else:
-        return "FILE"
+        self.ip = tk.StringVar(value=load_ip())
+        self.device_id = load_device_id()
 
+        # ===== TOP =====
+        top = tk.Frame(root)
+        top.pack(pady=10)
 
-# ---------------- IP SCREEN ----------------
-class IPScreen(Screen):
+        tk.Label(top, text="Server IP:").pack(side=tk.LEFT)
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        tk.Entry(top, textvariable=self.ip, width=30).pack(side=tk.LEFT)
 
-        box = BoxLayout(orientation="vertical")
+        tk.Button(top, text="Connect", command=self.connect).pack(side=tk.LEFT)
 
-        self.ip = TextInput(
-            text=load_ip().replace("http://", "").replace(":5000", ""),
-            hint_text="Server IP",
-            size_hint_y=None,
-            height=50
-        )
+        # ===== STATUS =====
+        self.status = tk.Label(root, text="Ready", fg="blue")
+        self.status.pack()
 
-        box.add_widget(self.ip)
+        # ===== FILE LIST =====
+        self.files_box = tk.Frame(root)
+        self.files_box.pack(fill=tk.BOTH, expand=True)
 
-        btn = Button(text="CONNECT", size_hint_y=None, height=50)
-        btn.bind(on_press=self.connect)
+        # ===== BOTTOM =====
+        bottom = tk.Frame(root)
+        bottom.pack(pady=10)
 
-        box.add_widget(btn)
+        tk.Button(bottom, text="Upload", command=self.upload_file).pack(side=tk.LEFT)
+        tk.Button(bottom, text="Refresh", command=self.load_files).pack(side=tk.LEFT)
 
-        self.status = Label(text="")
-        box.add_widget(self.status)
-
-        self.add_widget(box)
-
-    def connect(self, *args):
-        ip = self.ip.text.strip()
+    # ================= CONNECT =================
+    def connect(self):
+        ip = self.ip.get().strip()
 
         if "://" not in ip:
             ip = "http://" + ip
@@ -82,189 +80,146 @@ class IPScreen(Screen):
         if ":5000" not in ip:
             ip += ":5000"
 
+        self.ip.set(ip)
+
         try:
-            r = requests.get(ip + "/files", timeout=4)
+            r = requests.get(ip + "/files", timeout=5)
 
             if r.status_code == 200:
                 save_ip(ip)
-                self.manager.current = "main"
+                self.status.config(text="Connected ✔")
+                self.load_files()
             else:
-                self.status.text = "Server Error"
+                self.status.config(text="Server error")
 
         except:
-            self.status.text = "Connection Failed"
+            self.status.config(text="Connection failed")
 
-
-# ---------------- MAIN ----------------
-class MainScreen(Screen):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-        root = BoxLayout(orientation="vertical")
-
-        top = BoxLayout(size_hint_y=None, height=50)
-
-        b1 = Button(text="REFRESH")
-        b2 = Button(text="UPLOAD")
-        b3 = Button(text="BACK")
-
-        b1.bind(on_press=self.load)
-        b2.bind(on_press=self.upload)
-        b3.bind(on_press=self.back)
-
-        top.add_widget(b1)
-        top.add_widget(b2)
-        top.add_widget(b3)
-
-        root.add_widget(top)
-
-        self.status = Label(text="Ready", size_hint_y=None, height=40)
-        root.add_widget(self.status)
-
-        self.scroll = ScrollView()
-        self.list = GridLayout(cols=1, size_hint_y=None)
-        self.list.bind(minimum_height=self.list.setter("height"))
-
-        self.scroll.add_widget(self.list)
-        root.add_widget(self.scroll)
-
-        self.add_widget(root)
-
-    # ---------------- LOAD ----------------
-    def load(self, *args):
-
-        self.list.clear_widgets()
-
-        try:
-            data = requests.get(load_ip() + "/files").json()
-        except:
-            self.status.text = "Server Error"
-            return
-
-        for f in data:
-
-            fid = f["id"]
-            name = f["name"]
-            t = get_type(name)
-
-            row = BoxLayout(size_hint_y=None, height=55)
-
-            row.add_widget(Label(text=f"{name}\n[{t}]", size_hint_x=0.6))
-
-            actions = BoxLayout(size_hint_x=0.4)
-
-            btn_view = Button(text="View", font_size=11)
-            btn_dl = Button(text="DL", font_size=11)
-            btn_del = Button(text="Del", font_size=11)
-
-            btn_view.bind(on_press=lambda x, i=fid: self.preview(i))
-            btn_dl.bind(on_press=lambda x, i=fid: self.download(i))
-            btn_del.bind(on_press=lambda x, i=fid: self.delete(i))
-
-            actions.add_widget(btn_view)
-            actions.add_widget(btn_dl)
-            actions.add_widget(btn_del)
-
-            row.add_widget(actions)
-            self.list.add_widget(row)
-
-    # ---------------- PREVIEW ----------------
-    def preview(self, fid):
-        url = load_ip() + "/download/" + fid
-        import webbrowser
-        webbrowser.open(url)
-
-    # ---------------- DOWNLOAD ----------------
-    def download(self, fid):
+    # ================= LOAD FILES =================
+    def load_files(self):
 
         def run():
             try:
-                self.status.text = "Downloading..."
+                r = requests.get(self.ip.get() + "/files", timeout=5)
+                data = r.json()
+                self.update_ui(data)
 
-                url = load_ip() + "/download/" + fid
-                name = fid.split("_", 1)[-1]
-                path = "/storage/emulated/0/Download/" + name
+            except:
+                self.status.config(text="Load error")
+
+        threading.Thread(target=run, daemon=True).start()
+
+    # ================= UI (MOBILE FIXED) =================
+    def update_ui(self, data):
+
+        def draw():
+            for w in self.files_box.winfo_children():
+                w.destroy()
+
+            for f in data:
+                name = f["name"]
+
+                # CARD
+                card = tk.Frame(self.files_box, bg="#f2f2f2", pady=6)
+                card.pack(fill=tk.X, padx=6, pady=6)
+
+                # FILE NAME
+                tk.Label(
+                    card,
+                    text=name,
+                    bg="#f2f2f2",
+                    anchor="w",
+                    font=("Arial", 11, "bold")
+                ).pack(fill=tk.X)
+
+                # BUTTON ROW
+                row = tk.Frame(card, bg="#f2f2f2")
+                row.pack(fill=tk.X, pady=5)
+
+                tk.Button(row, text="View",
+                          width=10,
+                          command=lambda n=name: self.view(n)).pack(side=tk.LEFT, expand=True, fill=tk.X)
+
+                tk.Button(row, text="Import",
+                          width=10,
+                          command=lambda n=name: self.import_file(n)).pack(side=tk.LEFT, expand=True, fill=tk.X)
+
+                # 🔴 DELETE (VISIBLE ALWAYS)
+                tk.Button(row, text="DELETE",
+                          width=10,
+                          bg="red",
+                          fg="white",
+                          command=lambda n=name: self.delete(n)).pack(side=tk.LEFT, expand=True, fill=tk.X)
+
+        self.root.after(0, draw)
+
+    # ================= VIEW =================
+    def view(self, name):
+        webbrowser.open(self.ip.get() + "/view/" + name)
+
+    # ================= IMPORT =================
+    def import_file(self, name):
+
+        def run():
+            try:
+                url = self.ip.get() + "/file/" + name
+                path = os.path.join(SAVE_DIR, name)
 
                 r = requests.get(url, stream=True)
 
                 with open(path, "wb") as f:
-                    for c in r.iter_content(1024):
-                        if c:
-                            f.write(c)
+                    for chunk in r.iter_content(1024):
+                        if chunk:
+                            f.write(chunk)
 
-                self.status.text = "Downloaded"
-
-                # 🔥 زر فتح الملف بعد التحميل
-                self.add_open_button(path)
+                self.status.config(text="Imported ✔ " + name)
 
             except:
-                self.status.text = "Download Failed"
+                self.status.config(text="Import error")
 
-        threading.Thread(target=run).start()
+        threading.Thread(target=run, daemon=True).start()
 
-    # ---------------- OPEN FILE BUTTON ----------------
-    def add_open_button(self, path):
+    # ================= DELETE =================
+    def delete(self, name):
 
-        def open_file(_):
-            import os
-            os.system(f"am start -a android.intent.action.VIEW -d file://{path}")
+        def run():
+            try:
+                url = self.ip.get() + "/delete/" + name
+                requests.get(url, params={"owner_id": self.device_id})
+                self.load_files()
 
-        btn = Button(
-            text="OPEN FILE",
-            size_hint_y=None,
-            height=50
-        )
+            except:
+                self.status.config(text="Delete error")
 
-        btn.bind(on_press=open_file)
+        threading.Thread(target=run, daemon=True).start()
 
-        self.list.add_widget(btn)
+    # ================= UPLOAD =================
+    def upload_file(self):
 
-    # ---------------- DELETE ----------------
-    def delete(self, fid):
-        try:
-            requests.post(load_ip() + "/delete/" + fid)
-            self.load()
-        except:
-            self.status.text = "Delete Failed"
+        path = filedialog.askopenfilename()
 
-    # ---------------- UPLOAD ----------------
-    def upload(self, *args):
+        if not path:
+            return
 
-        chooser = FileChooserListView(path="/storage/emulated/0")
+        def run():
+            try:
+                with open(path, "rb") as f:
+                    requests.post(
+                        self.ip.get() + "/upload",
+                        files={"file": f},
+                        data={"owner_id": self.device_id}
+                    )
 
-        box = BoxLayout(orientation="vertical")
-        box.add_widget(chooser)
+                self.status.config(text="Uploaded ✔")
+                self.load_files()
 
-        btn = Button(text="UPLOAD", size_hint_y=None, height=50)
-        box.add_widget(btn)
+            except:
+                self.status.config(text="Upload error")
 
-        popup = Popup(title="Upload", content=box, size_hint=(0.9, 0.9))
-
-        def send(_):
-            if chooser.selection:
-                path = chooser.selection[0]
-                try:
-                    with open(path, "rb") as f:
-                        requests.post(load_ip() + "/upload", files={"file": f})
-                    self.load()
-                except:
-                    self.status.text = "Upload Failed"
-
-        btn.bind(on_press=send)
-        popup.open()
-
-    def back(self, *args):
-        self.manager.current = "ip"
+        threading.Thread(target=run, daemon=True).start()
 
 
-# ---------------- APP ----------------
-class AppMain(App):
-    def build(self):
-        sm = ScreenManager()
-        sm.add_widget(IPScreen(name="ip"))
-        sm.add_widget(MainScreen(name="main"))
-        return sm
-
-
-AppMain().run()
+# ================= RUN =================
+root = tk.Tk()
+app = ClientApp(root)
+root.mainloop()
